@@ -18,6 +18,9 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -65,11 +68,11 @@ jobs:
           }
           android {
               namespace = "com.example.tasktracker"
-              compileSdk = 35
+              compileSdk = 34
               defaultConfig {
                   applicationId = "com.example.tasktracker"
                   minSdk = 26
-                  targetSdk = 35
+                  targetSdk = 34
                   versionCode = 1
                   versionName = "1.0"
               }
@@ -80,16 +83,13 @@ jobs:
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
           }
           dependencies {
               val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
               implementation(composeBom)
               implementation("androidx.compose.ui:ui")
               implementation("androidx.compose.material3:material3")
-              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.compose.material:material-icons-core")
               implementation("androidx.activity:activity-compose:1.9.3")
               implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
           }
@@ -120,6 +120,7 @@ jobs:
 
           # 5. app/src/main/java/com/example/tasktracker/MainActivity.kt
           cat << 'EOF' > app/src/main/java/com/example/tasktracker/MainActivity.kt
+          @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
           package com.example.tasktracker
 
           import android.content.Context
@@ -133,10 +134,7 @@ jobs:
           import androidx.compose.foundation.lazy.items
           import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material.icons.Icons
-          import androidx.compose.material.icons.automirrored.filled.ArrowBack
-          import androidx.compose.material.icons.automirrored.filled.ArrowForward
           import androidx.compose.material.icons.filled.Add
-          import androidx.compose.material.icons.filled.CalendarToday
           import androidx.compose.material.icons.filled.Delete
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
@@ -196,7 +194,6 @@ jobs:
               }
           }
 
-          @OptIn(ExperimentalMaterial3Api::class)
           @Composable
           fun KanbanApp() {
               val context = LocalContext.current
@@ -330,23 +327,31 @@ jobs:
                       }
                       task.dueDate?.let { date ->
                           Spacer(modifier = Modifier.height(8.dp))
-                          Row(verticalAlignment = Alignment.CenterVertically) {
-                              Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                              Spacer(modifier = Modifier.width(4.dp))
-                              Text(SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(date)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                          }
+                          Text(
+                              text = "Due: " + SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(date)),
+                              style = MaterialTheme.typography.labelSmall,
+                              color = MaterialTheme.colorScheme.onSurfaceVariant
+                          )
                       }
                       Spacer(modifier = Modifier.height(10.dp))
                       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                           task.status.previous()?.let { prev ->
-                              FilledTonalIconButton(onClick = { onMove(task.id, prev) }, modifier = Modifier.size(32.dp)) {
-                                  Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                              FilledTonalButton(
+                                  onClick = { onMove(task.id, prev) },
+                                  contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                  modifier = Modifier.height(32.dp)
+                              ) {
+                                  Text("← Move", style = MaterialTheme.typography.labelSmall)
                               }
                           } ?: Spacer(Modifier.size(32.dp))
 
                           task.status.next()?.let { next ->
-                              FilledTonalIconButton(onClick = { onMove(task.id, next) }, modifier = Modifier.size(32.dp)) {
-                                  Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                              FilledTonalButton(
+                                  onClick = { onMove(task.id, next) },
+                                  contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                  modifier = Modifier.height(32.dp)
+                              ) {
+                                  Text("Move →", style = MaterialTheme.typography.labelSmall)
                               }
                           }
                       }
@@ -366,7 +371,6 @@ jobs:
               }
           }
 
-          @OptIn(ExperimentalMaterial3Api::class)
           @Composable
           fun AddTaskDialog(onDismiss: () -> Unit, onConfirm: (String, List<String>, Priority) -> Unit) {
               var title by remember { mutableStateOf("") }
@@ -423,8 +427,8 @@ jobs:
               val prefs = context.getSharedPreferences("task_prefs", Context.MODE_PRIVATE)
               val raw = prefs.getString("tasks", null) ?: return listOf(
                   TaskItem(title = "Design app layout", notes = listOf("Use modern Material 3", "Support side scrolling"), status = TaskStatus.COMPLETED, priority = Priority.HIGH),
-                  TaskItem(title = "Test movement controls", notes = listOf("Click arrows to shift columns"), status = TaskStatus.IN_PROGRESS, priority = Priority.MEDIUM),
-                  TaskItem(title = "Add your first custom task", notes = listOf("Use the + button at bottom right"), status = TaskStatus.TO_BE_COMPLETED, priority = Priority.LOW)
+                  TaskItem(title = "Test movement controls", notes = listOf("Tap arrow buttons to move"), status = TaskStatus.IN_PROGRESS, priority = Priority.MEDIUM),
+                  TaskItem(title = "Add your first task", notes = listOf("Tap the + button at bottom right"), status = TaskStatus.TO_BE_COMPLETED, priority = Priority.LOW)
               )
               return try {
                   val arr = JSONArray(raw)
@@ -446,7 +450,7 @@ jobs:
           EOF
 
       - name: Compile Debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
