@@ -1,0 +1,455 @@
+name: Build Task Tracker APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Generate App Code & Structure
+        run: |
+          mkdir -p app/src/main/java/com/example/tasktracker
+
+          # 1. settings.gradle.kts
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "TaskTracker"
+          include(":app")
+          EOF
+
+          # 2. build.gradle.kts (root)
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.7.1" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          EOF
+
+          # 3. app/build.gradle.kts
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+          android {
+              namespace = "com.example.tasktracker"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.example.tasktracker"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              buildFeatures {
+                  compose = true
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          dependencies {
+              val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
+              implementation(composeBom)
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.activity:activity-compose:1.9.3")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+          }
+          EOF
+
+          # 4. app/src/main/AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/sym_def_app_icon"
+                  android:label="Task Tracker"
+                  android:roundIcon="@android:drawable/sym_def_app_icon"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # 5. app/src/main/java/com/example/tasktracker/MainActivity.kt
+          cat << 'EOF' > app/src/main/java/com/example/tasktracker/MainActivity.kt
+          package com.example.tasktracker
+
+          import android.content.Context
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.LazyRow
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.automirrored.filled.ArrowBack
+          import androidx.compose.material.icons.automirrored.filled.ArrowForward
+          import androidx.compose.material.icons.filled.Add
+          import androidx.compose.material.icons.filled.CalendarToday
+          import androidx.compose.material.icons.filled.Delete
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextDecoration
+          import androidx.compose.ui.unit.dp
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.text.SimpleDateFormat
+          import java.util.*
+
+          enum class TaskStatus(val title: String) {
+              TO_BE_COMPLETED("To be completed"),
+              IN_PROGRESS("In progress"),
+              COMPLETED("Completed");
+
+              fun next(): TaskStatus? = when (this) {
+                  TO_BE_COMPLETED -> IN_PROGRESS
+                  IN_PROGRESS -> COMPLETED
+                  COMPLETED -> null
+              }
+              fun previous(): TaskStatus? = when (this) {
+                  TO_BE_COMPLETED -> null
+                  IN_PROGRESS -> TO_BE_COMPLETED
+                  COMPLETED -> IN_PROGRESS
+              }
+          }
+
+          enum class Priority(val label: String) {
+              LOW("Low"), MEDIUM("Med"), HIGH("High")
+          }
+
+          data class TaskItem(
+              val id: String = UUID.randomUUID().toString(),
+              val title: String,
+              val notes: List<String> = emptyList(),
+              val status: TaskStatus = TaskStatus.TO_BE_COMPLETED,
+              val priority: Priority = Priority.MEDIUM,
+              val dueDate: Long? = null
+          )
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme {
+                          Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                              KanbanApp()
+                          }
+                      }
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          fun KanbanApp() {
+              val context = LocalContext.current
+              var tasks by remember { mutableStateOf(loadTasks(context)) }
+              var showAddDialog by remember { mutableStateOf(false) }
+
+              fun persist(newTasks: List<TaskItem>) {
+                  tasks = newTasks
+                  saveTasks(context, newTasks)
+              }
+
+              Scaffold(
+                  topBar = {
+                      TopAppBar(
+                          title = { Text("Task Tracker", fontWeight = FontWeight.Bold) },
+                          colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                      )
+                  },
+                  floatingActionButton = {
+                      FloatingActionButton(onClick = { showAddDialog = true }) {
+                          Icon(Icons.Default.Add, contentDescription = "Add Task")
+                      }
+                  }
+              ) { innerPadding ->
+                  LazyRow(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .padding(innerPadding),
+                      contentPadding = PaddingValues(16.dp),
+                      horizontalArrangement = Arrangement.spacedBy(16.dp)
+                  ) {
+                      items(TaskStatus.entries) { status ->
+                          KanbanColumn(
+                              status = status,
+                              tasks = tasks.filter { it.status == status },
+                              onMove = { taskId, newStatus ->
+                                  persist(tasks.map { if (it.id == taskId) it.copy(status = newStatus) else it })
+                              },
+                              onDelete = { taskId ->
+                                  persist(tasks.filterNot { it.id == taskId })
+                              }
+                          )
+                      }
+                  }
+
+                  if (showAddDialog) {
+                      AddTaskDialog(
+                          onDismiss = { showAddDialog = false },
+                          onConfirm = { title, notes, priority ->
+                              val newTask = TaskItem(
+                                  title = title,
+                                  notes = notes,
+                                  priority = priority,
+                                  dueDate = System.currentTimeMillis() + 86400000L
+                              )
+                              persist(tasks + newTask)
+                              showAddDialog = false
+                          }
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun KanbanColumn(
+              status: TaskStatus,
+              tasks: List<TaskItem>,
+              onMove: (String, TaskStatus) -> Unit,
+              onDelete: (String) -> Unit
+          ) {
+              Surface(
+                  modifier = Modifier.width(290.dp).fillMaxHeight(),
+                  shape = RoundedCornerShape(16.dp),
+                  color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+              ) {
+                  Column(modifier = Modifier.padding(12.dp)) {
+                      Row(
+                          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Text(status.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                          Badge(containerColor = MaterialTheme.colorScheme.primary) { Text(tasks.size.toString()) }
+                      }
+
+                      LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                          items(tasks, key = { it.id }) { task ->
+                              TaskCard(task = task, onMove = onMove, onDelete = onDelete)
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun TaskCard(
+              task: TaskItem,
+              onMove: (String, TaskStatus) -> Unit,
+              onDelete: (String) -> Unit
+          ) {
+              Card(
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(12.dp),
+                  colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                  elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+              ) {
+                  Column(modifier = Modifier.padding(12.dp)) {
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                          PriorityTag(task.priority)
+                          IconButton(onClick = { onDelete(task.id) }, modifier = Modifier.size(24.dp)) {
+                              Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                          }
+                      }
+                      Spacer(modifier = Modifier.height(6.dp))
+                      Row(verticalAlignment = Alignment.Top) {
+                          Text("• ", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                          Text(
+                              text = task.title,
+                              style = MaterialTheme.typography.titleSmall.copy(
+                                  textDecoration = if (task.status == TaskStatus.COMPLETED) TextDecoration.LineThrough else null
+                              )
+                          )
+                      }
+                      if (task.notes.isNotEmpty()) {
+                          Spacer(modifier = Modifier.height(4.dp))
+                          Column(modifier = Modifier.padding(start = 14.dp)) {
+                              task.notes.forEach { note ->
+                                  Text("- $note", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                              }
+                          }
+                      }
+                      task.dueDate?.let { date ->
+                          Spacer(modifier = Modifier.height(8.dp))
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                              Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                              Spacer(modifier = Modifier.width(4.dp))
+                              Text(SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(date)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                          }
+                      }
+                      Spacer(modifier = Modifier.height(10.dp))
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                          task.status.previous()?.let { prev ->
+                              FilledTonalIconButton(onClick = { onMove(task.id, prev) }, modifier = Modifier.size(32.dp)) {
+                                  Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                              }
+                          } ?: Spacer(Modifier.size(32.dp))
+
+                          task.status.next()?.let { next ->
+                              FilledTonalIconButton(onClick = { onMove(task.id, next) }, modifier = Modifier.size(32.dp)) {
+                                  Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun PriorityTag(priority: Priority) {
+              val (bg, txt) = when (priority) {
+                  Priority.HIGH -> Color(0xFFFFEBEE) to Color(0xFFC62828)
+                  Priority.MEDIUM -> Color(0xFFFFF3E0) to Color(0xFFEF6C00)
+                  Priority.LOW -> Color(0xFFE8F5E9) to Color(0xFF2E7D32)
+              }
+              Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                  Text(priority.label, color = txt, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          fun AddTaskDialog(onDismiss: () -> Unit, onConfirm: (String, List<String>, Priority) -> Unit) {
+              var title by remember { mutableStateOf("") }
+              var subNote by remember { mutableStateOf("") }
+              val notes = remember { mutableStateListOf<String>() }
+              var priority by remember { mutableStateOf(Priority.MEDIUM) }
+
+              ModalBottomSheet(onDismissRequest = onDismiss) {
+                  Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                      Text("Create Task", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                      Spacer(Modifier.height(14.dp))
+                      OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Task Description") }, modifier = Modifier.fillMaxWidth())
+                      Spacer(Modifier.height(10.dp))
+                      Row(modifier = Modifier.fillMaxWidth()) {
+                          OutlinedTextField(value = subNote, onValueChange = { subNote = it }, label = { Text("Add Sub-bullet") }, modifier = Modifier.weight(1f))
+                          IconButton(onClick = { if (subNote.isNotBlank()) { notes.add(subNote.trim()); subNote = "" } }, modifier = Modifier.padding(top = 8.dp)) {
+                              Icon(Icons.Default.Add, contentDescription = null)
+                          }
+                      }
+                      notes.forEach { Text(" • $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp, top = 2.dp)) }
+                      Spacer(Modifier.height(14.dp))
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          Priority.entries.forEach { p ->
+                              FilterChip(selected = priority == p, onClick = { priority = p }, label = { Text(p.name) })
+                          }
+                      }
+                      Spacer(Modifier.height(18.dp))
+                      Button(onClick = { if (title.isNotBlank()) onConfirm(title, notes.toList(), priority) }, enabled = title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                          Text("Add Task")
+                      }
+                  }
+              }
+          }
+
+          fun saveTasks(context: Context, tasks: List<TaskItem>) {
+              val prefs = context.getSharedPreferences("task_prefs", Context.MODE_PRIVATE)
+              val arr = JSONArray()
+              for (t in tasks) {
+                  val obj = JSONObject()
+                  obj.put("id", t.id)
+                  obj.put("title", t.title)
+                  val subArr = JSONArray()
+                  t.notes.forEach { subArr.put(it) }
+                  obj.put("notes", subArr)
+                  obj.put("status", t.status.name)
+                  obj.put("priority", t.priority.name)
+                  obj.put("dueDate", t.dueDate ?: -1L)
+                  arr.put(obj)
+              }
+              prefs.edit().putString("tasks", arr.toString()).apply()
+          }
+
+          fun loadTasks(context: Context): List<TaskItem> {
+              val prefs = context.getSharedPreferences("task_prefs", Context.MODE_PRIVATE)
+              val raw = prefs.getString("tasks", null) ?: return listOf(
+                  TaskItem(title = "Design app layout", notes = listOf("Use modern Material 3", "Support side scrolling"), status = TaskStatus.COMPLETED, priority = Priority.HIGH),
+                  TaskItem(title = "Test movement controls", notes = listOf("Click arrows to shift columns"), status = TaskStatus.IN_PROGRESS, priority = Priority.MEDIUM),
+                  TaskItem(title = "Add your first custom task", notes = listOf("Use the + button at bottom right"), status = TaskStatus.TO_BE_COMPLETED, priority = Priority.LOW)
+              )
+              return try {
+                  val arr = JSONArray(raw)
+                  (0 until arr.length()).map { i ->
+                      val obj = arr.getJSONObject(i)
+                      val subList = mutableListOf<String>()
+                      obj.optJSONArray("notes")?.let { for (j in 0 until it.length()) subList.add(it.getString(j)) }
+                      TaskItem(
+                          id = obj.getString("id"),
+                          title = obj.getString("title"),
+                          notes = subList,
+                          status = TaskStatus.valueOf(obj.optString("status", TaskStatus.TO_BE_COMPLETED.name)),
+                          priority = Priority.valueOf(obj.optString("priority", Priority.MEDIUM.name)),
+                          dueDate = obj.optLong("dueDate").takeIf { it > 0 }
+                      )
+                  }
+              } catch (_: Exception) { emptyList() }
+          }
+          EOF
+
+      - name: Compile Debug APK
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaskTracker-App
+          path: app/build/outputs/apk/debug/*.apk
