@@ -30,6 +30,11 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/example/tasktracker
 
+          # 0. gradle.properties (Enables AndroidX)
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          EOF
+
           # 1. settings.gradle.kts
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
@@ -89,7 +94,6 @@ jobs:
               implementation(composeBom)
               implementation("androidx.compose.ui:ui")
               implementation("androidx.compose.material3:material3")
-              implementation("androidx.compose.material:material-icons-core")
               implementation("androidx.activity:activity-compose:1.9.3")
               implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
           }
@@ -133,9 +137,6 @@ jobs:
           import androidx.compose.foundation.lazy.LazyRow
           import androidx.compose.foundation.lazy.items
           import androidx.compose.foundation.shape.RoundedCornerShape
-          import androidx.compose.material.icons.Icons
-          import androidx.compose.material.icons.filled.Add
-          import androidx.compose.material.icons.filled.Delete
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
           import androidx.compose.ui.Alignment
@@ -214,7 +215,7 @@ jobs:
                   },
                   floatingActionButton = {
                       FloatingActionButton(onClick = { showAddDialog = true }) {
-                          Icon(Icons.Default.Add, contentDescription = "Add Task")
+                          Text("+", style = MaterialTheme.typography.headlineMedium)
                       }
                   }
               ) { innerPadding ->
@@ -304,7 +305,7 @@ jobs:
                       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                           PriorityTag(task.priority)
                           IconButton(onClick = { onDelete(task.id) }, modifier = Modifier.size(24.dp)) {
-                              Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                              Text("✕", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
                           }
                       }
                       Spacer(modifier = Modifier.height(6.dp))
@@ -384,10 +385,10 @@ jobs:
                       Spacer(Modifier.height(14.dp))
                       OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Task Description") }, modifier = Modifier.fillMaxWidth())
                       Spacer(Modifier.height(10.dp))
-                      Row(modifier = Modifier.fillMaxWidth()) {
+                      Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                           OutlinedTextField(value = subNote, onValueChange = { subNote = it }, label = { Text("Add Sub-bullet") }, modifier = Modifier.weight(1f))
-                          IconButton(onClick = { if (subNote.isNotBlank()) { notes.add(subNote.trim()); subNote = "" } }, modifier = Modifier.padding(top = 8.dp)) {
-                              Icon(Icons.Default.Add, contentDescription = null)
+                          IconButton(onClick = { if (subNote.isNotBlank()) { notes.add(subNote.trim()); subNote = "" } }) {
+                              Text("+", style = MaterialTheme.typography.titleLarge)
                           }
                       }
                       notes.forEach { Text(" • $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp, top = 2.dp)) }
@@ -432,28 +433,4 @@ jobs:
               )
               return try {
                   val arr = JSONArray(raw)
-                  (0 until arr.length()).map { i ->
-                      val obj = arr.getJSONObject(i)
-                      val subList = mutableListOf<String>()
-                      obj.optJSONArray("notes")?.let { for (j in 0 until it.length()) subList.add(it.getString(j)) }
-                      TaskItem(
-                          id = obj.getString("id"),
-                          title = obj.getString("title"),
-                          notes = subList,
-                          status = TaskStatus.valueOf(obj.optString("status", TaskStatus.TO_BE_COMPLETED.name)),
-                          priority = Priority.valueOf(obj.optString("priority", Priority.MEDIUM.name)),
-                          dueDate = obj.optLong("dueDate").takeIf { it > 0 }
-                      )
-                  }
-              } catch (_: Exception) { emptyList() }
-          }
-          EOF
-
-      - name: Compile Debug APK
-        run: gradle assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TaskTracker-App
-          path: app/build/outputs/apk/debug/*.apk
+                
